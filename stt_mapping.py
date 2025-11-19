@@ -1,7 +1,7 @@
 import speech_recognition as sr  # 🎤 음성 → 텍스트 변환 라이브러리
 
 # ---------------------------------------------
-# 📌 YOLO 클래스 목록
+# 📌 YOLO 클래스 목록 (에어팟, 휴지, 마우스, 물병, 안경, 립밤,   
 # ---------------------------------------------
 classes = [
     "airpods", "cell phone", "tissue", "mouse", "laptop", "bottle",

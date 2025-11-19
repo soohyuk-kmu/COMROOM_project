@@ -43,7 +43,7 @@ pipeline = start_pipeline()
 try:
     while True:
         try:
-            # 프레임 대기 (5초 타임아웃)
+            # 프레임 대기 (5초 타임아웃) 
             frames = pipeline.wait_for_frames(timeout_ms=5000)
             color_frame = frames.get_color_frame()
 

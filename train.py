@@ -39,7 +39,7 @@ print("="*60 + "\n")
 results = model.train(
     data=str(DATA_YAML),
     epochs=50,
-    imgsz=640,  # CPU 학습 시 640 권장 (1280은 메모리 부족 가능)
+    imgsz=1280,  # CPU 학습 시 640 권장 (1280은 메모리 부족 가능)
     batch=4,  # CPU 학습 시 적절한 배치 크기
     device='cpu',   # GPU 사용 시 '0' 또는 0, CPU면 'cpu' (CUDA 확인 후 수정 가능)
     workers=0,  # CPU 학습 시 workers=0 권장 (메모리 절약)
