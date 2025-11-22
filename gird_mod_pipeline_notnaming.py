@@ -31,7 +31,7 @@ def tts_worker():
             t = gTTS(text=text, lang='ko')
             t.save("tts_tmp.mp3")
 
-            sound = AudioSegment.from_mp3("tts_tmp.mp3")
+            sound = AudioSegment.from_mp3("tts_tmp.mp3")    
             sound.export("tts_tmp.wav", format="wav")
 
             os.system("ffmpeg -y -i tts_tmp.wav -filter:a 'atempo=1.5' tts_tmp_fast.wav 2>/dev/null")
@@ -266,7 +266,7 @@ def get_frame_realsense(pipe):
 # ======================================================================
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--weights", type=str, default="best.pt")
+    p.add_argument("--weights", type=str, default="last.pt")
     p.add_argument("--source", type=str, default="rs")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--conf", type=float, default=0.5)

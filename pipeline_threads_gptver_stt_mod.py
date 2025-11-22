@@ -2,6 +2,7 @@ import argparse
 import time
 import threading
 from typing import Optional
+from queue import Queue
 
 import cv2
 import numpy as np
@@ -22,7 +23,44 @@ except ImportError:
 # -----------------------------
 import speech_recognition as sr
 from gtts import gTTS
+from pydub import AudioSegment
 import os
+
+
+# =============================================================
+# TTS 큐 시스템 (wav + aplay + 빠른 속도 atempo)
+# =============================================================
+TTS_QUEUE = Queue()
+
+def tts_worker():
+    """빠른 TTS (속도 1.5배)"""
+    while True:
+        text = TTS_QUEUE.get()
+        try:
+            # gTTS → mp3
+            t = gTTS(text=text, lang='ko')
+            t.save("tts_tmp.mp3")
+
+            # mp3 → wav
+            sound = AudioSegment.from_mp3("tts_tmp.mp3")
+            sound.export("tts_tmp.wav", format="wav")
+
+            # wav 속도 빠르게 (1.5배)
+            os.system("ffmpeg -y -i tts_tmp.wav -filter:a 'atempo=1.5' tts_tmp_fast.wav 2>/dev/null")
+
+            # 재생
+            os.system("aplay -q tts_tmp_fast.wav")
+
+        except Exception as e:
+            print("TTS 오류:", e)
+
+        TTS_QUEUE.task_done()
+
+threading.Thread(target=tts_worker, daemon=True).start()
+
+def tts_speak(text):
+    print("🔊 TTS 요청:", text)
+    TTS_QUEUE.put(text)
 
 
 # =============================================================
@@ -67,11 +105,13 @@ SYNONYMS = {
     "워치": "applewatch"
 }
 
+
 def split_particle(word: str):
     for p in particles:
         if word.endswith(p):
             return [word[:-len(p)], p]
     return [word]
+
 
 def remove_particle(word: str):
     for p in particles:
@@ -79,11 +119,11 @@ def remove_particle(word: str):
             return word[:-len(p)]
     return word
 
+
 def map_to_class(text: str):
     tokens = []
     for w in text.split():
         tokens.extend(split_particle(w))
-
     for token in tokens:
         stem = remove_particle(token)
         if stem in SYNONYMS:
@@ -94,68 +134,92 @@ def map_to_class(text: str):
 
 
 # =============================================================
-# 9분할 안내 (텍스트만 사용)
+# 🔥 16분할 안내 (4×4)
 # =============================================================
 GRID_TEXT = {
-    1: "TV와 서랍장 앞에 있습니다.",
-    2: "서랍장과 침대 사이에 있습니다.",
-    3: "침대와 소파 앞에 있습니다.",
-    4: "TV 앞에 있습니다.",
-    5: "정가운데에 있습니다.",
-    6: "소파 앞에 있습니다.",
-    7: "와인셀러 앞에 있습니다.",
-    8: "중앙 아래쪽에 있습니다.",
-    9: "소파 왼쪽 앞에 있습니다."
+    1: "1구역에 있습니다.",
+    2: "2구역에 있습니다.",
+    3: "3구역에 있습니다.",
+    4: "4구역에 있습니다.",
+    5: "5구역에 있습니다.",
+    6: "6구역에 있습니다.",
+    7: "7구역에 있습니다.",
+    8: "8구역에 있습니다.",
+    9: "9구역에 있습니다.",
+    10: "10구역에 있습니다.",
+    11: "11구역에 있습니다.",
+    12: "12구역에 있습니다.",
+    13: "13구역에 있습니다.",
+    14: "14구역에 있습니다.",
+    15: "15구역에 있습니다.",
+    16: "16구역에 있습니다."
 }
 
 def grid_region(cx, cy, w, h):
-    col = int(cx // (w/3))
-    row = int(cy // (h/3))
-    return row * 3 + col + 1
+    col = int(cx // (w / 4))   # 0~3
+    row = int(cy // (h / 4))   # 0~3
+    col = min(col, 3)
+    row = min(row, 3)
+    return row * 4 + col + 1   # 1~16
 
 
 # =============================================================
-# STT / TTS — (🔥 최신 안정화 버전)
+# STT
 # =============================================================
 def stt_listen():
     r = sr.Recognizer()
+    r.energy_threshold = 300
+
     with sr.Microphone() as mic:
         print("🎤 STT 대기중… 말하세요.")
-
-        # 🔥 잡음 보정 (무조건 필요)
-        r.adjust_for_ambient_noise(mic, duration=0.5)
-
         try:
-            # 🔥 timeout + phrase_time_limit 추가 → 무한 대기 방지
-            audio = r.listen(
-                mic,
-                timeout=5,            # 5초간 아무 말 없으면 종료
-                phrase_time_limit=4   # 말하기 최대 4초
-            )
-        except sr.WaitTimeoutError:
-            print("⏰ STT 타임아웃: 아무 소리도 감지되지 않음")
+            audio = r.listen(mic, timeout=5, phrase_time_limit=5)
+        except:
             return ""
-
-    # 구글 STT
     try:
         text = r.recognize_google(audio, language='ko-KR')
         print("🗣 인식:", text)
         return text
-    except Exception as e:
-        print("❌ 음성 인식 실패:", e)
+    except:
+        print("❌ 음성 인식 실패")
         return ""
 
 
-def tts_speak(text):
-    t = gTTS(text=text, lang='ko')
-    t.save("tts_out.mp3")
-    os.system("mpg123 tts_out.mp3")
+# =============================================================
+# STT 스레드 (자동 재시작 버전)
+# =============================================================
+def stt_thread(state):
+    text = stt_listen()
+    cls = map_to_class(text)
+
+    if not text.strip():
+        tts_speak("다시 말씀해 주세요.")
+        state["target"] = None
+        state["running"] = True
+        state["retry"] = True
+        threading.Thread(target=stt_thread, args=(state,), daemon=True).start()
+        return
+
+    if not cls:
+        tts_speak("무슨 물건인지 모르겠어요. 다시 말씀해 주세요.")
+        state["target"] = None
+        state["running"] = True
+        state["retry"] = True
+        threading.Thread(target=stt_thread, args=(state,), daemon=True).start()
+        return
+
+    print("🎯 찾는 객체:", cls)
+    state["target"] = cls
+    state["running"] = False
+    state["retry"] = False
+    state["searched_before"] = True
+
 
 
 # =============================================================
-# YOLO
+# YOLO Args
 # =============================================================
-def parse_args() -> argparse.Namespace:
+def parse_args():
     from pathlib import Path
     project_root = Path(__file__).parent.absolute()
     default_weights = project_root / "weights" / "best.pt"
@@ -176,7 +240,7 @@ def parse_args() -> argparse.Namespace:
 # =============================================================
 # RealSense
 # =============================================================
-def init_realsense() -> Optional[rs.pipeline]:
+def init_realsense():
     if not REALSENSE_AVAILABLE:
         print("❌ pyrealsense2 없음 → RealSense 불가")
         return None
@@ -195,7 +259,7 @@ def init_realsense() -> Optional[rs.pipeline]:
 
 def get_frame_realsense(pipeline):
     try:
-        frames = pipeline.wait_for_frames()
+        frames = pipeline.wait_for_frames(timeout_ms=3000)
         f = frames.get_color_frame()
         if f:
             return np.asanyarray(f.get_data())
@@ -204,36 +268,19 @@ def get_frame_realsense(pipeline):
     return None
 
 
-# =============================================================
-# STT 스레드 함수
-# =============================================================
-def stt_thread(result_holder):
-    text = stt_listen()
-    cls = map_to_class(text)
-
-    if not cls:
-        tts_speak("무슨 물건인지 모르겠어요.")
-        result_holder["target"] = None
-    else:
-        print("🎯 찾는 객체:", cls)
-        result_holder["target"] = cls
-
-    result_holder["running"] = False
-
 
 # =============================================================
-# MAIN
+# MAIN LOOP
 # =============================================================
 def main():
     args = parse_args()
     model = YOLO(args.weights)
 
     use_rs = args.source.lower() in ["realsense", "rs", "d435i"]
-
     pipeline = None
     cap = None
 
-    # RealSense 재연결 루프
+    # RealSense 연결 반복
     if use_rs:
         while pipeline is None:
             print("🔄 RealSense 연결 시도중…")
@@ -245,25 +292,28 @@ def main():
     else:
         cap = cv2.VideoCapture(args.source)
 
-    # STT 상태 저장
-    stt_state = {"target": None, "running": False}
+    stt_state = {
+        "target": None,
+        "running": False,
+        "retry": False,
+        "searched_before": False
+    }
 
     try:
         while True:
 
-            # ----- 프레임 -----
+            # 프레임 가져오기
             if use_rs:
                 frame = get_frame_realsense(pipeline)
                 ok = frame is not None
             else:
                 ok, frame = cap.read()
-
             if not ok:
                 continue
 
             fh, fw = frame.shape[:2]
 
-            # ----- YOLO -----
+            # YOLO 추론
             results = model.predict(
                 frame,
                 imgsz=args.imgsz,
@@ -275,44 +325,38 @@ def main():
 
             key = cv2.waitKey(1) & 0xFF
 
-            # ------------------------------------------------------------
-            # S 키 → STT 스레드 시작 (YOLO 멈추지 않음)
-            # ------------------------------------------------------------
-            if key == ord('s') and not stt_state["running"]:
-                print("🎤 STT 스레드 실행")
-                stt_state["running"] = True
-                threading.Thread(
-                    target=stt_thread,
-                    args=(stt_state,),
-                    daemon=True
-                ).start()
+            # =====================================================
+            # S → STT 최초 1회 실행
+            # =====================================================
+            if key == ord('s'):
+                if not stt_state["running"]:
+                    tts_speak("어떤 물건을 찾을까요?")
+                    stt_state["running"] = True
+                    threading.Thread(target=stt_thread, args=(stt_state,), daemon=True).start()
 
-            # ------------------------------------------------------------
-            # YOLO 탐지 결과로 9분할 안내
-            # ------------------------------------------------------------
+            # =====================================================
+            # YOLO 결과 → 물건 위치 안내 (16분할)
+            # =====================================================
             target_object = stt_state["target"]
 
             if target_object:
-                boxes = results[0].boxes
-                if boxes:
-                    for box in boxes:
-                        cls_name = results[0].names[int(box.cls[0])]
-                        if cls_name == target_object:
+                for box in results[0].boxes:
+                    cls_name = results[0].names[int(box.cls[0])]
+                    if cls_name == target_object:
 
-                            x1, y1, x2, y2 = box.xyxy[0]
-                            cx = float((x1 + x2) / 2)
-                            cy = float((y1 + y2) / 2)
+                        x1, y1, x2, y2 = box.xyxy[0]
+                        cx = float((x1 + x2) / 2)
+                        cy = float((y1 + y2) / 2)
 
-                            region = grid_region(cx, cy, fw, fh)
-                            speak = f"{target_object}은 {GRID_TEXT.get(region)}"
+                        region = grid_region(cx, cy, fw, fh)
+                        location_text = GRID_TEXT.get(region)
 
-                            print("📢", speak)
-                            tts_speak(speak)
+                        tts_speak(f"{target_object}은 {location_text}")
 
-                            stt_state["target"] = None
-                            break
+                        stt_state["target"] = None
+                        stt_state["running"] = False
+                        break
 
-            # ----- 화면 출력 -----
             if args.show:
                 cv2.imshow("YOLO", annotated)
 
@@ -325,6 +369,7 @@ def main():
         if cap:
             cap.release()
         cv2.destroyAllWindows()
+
 
 
 # =============================================================
