@@ -20,9 +20,9 @@ from gtts import gTTS
 from pydub import AudioSegment
 
 
-# =========================================
+# ===============================================================
 # TTS
-# =========================================
+# ===============================================================
 TTS_QUEUE = Queue()
 
 def tts_worker():
@@ -33,7 +33,7 @@ def tts_worker():
             t.save("tts.mp3")
             sound = AudioSegment.from_mp3("tts.mp3")
             sound.export("tts.wav", format="wav")
-            os.system("ffmpeg -y -i tts.wav -filter:a 'atempo=1.4' tts_fast.wav 2>/dev/null")
+            os.system("ffmpeg -y -i tts.wav -filter:a 'atempo=1.35' tts_fast.wav 2>/dev/null")
             os.system("aplay -q tts_fast.wav")
         except:
             pass
@@ -46,10 +46,9 @@ def tts_speak(t):
     TTS_QUEUE.put(t)
 
 
-# =========================================
-# 조사/단어 매핑
-# =========================================
-
+# ===============================================================
+# 단어 매핑
+# ===============================================================
 particles = ["이랑","랑","하고","과","와","에서","으로","로","은","는","이","가","을","를","에"]
 
 YOLO_CLASSES = [
@@ -59,26 +58,20 @@ YOLO_CLASSES = [
 ]
 
 SYNONYMS = {
-    "에어팟":"airpods","이어폰":"airpods",
-    "핸드폰":"cell phone","휴대폰":"cell phone","폰":"cell phone",
-    "티슈":"tissue","휴지":"tissue",
+    "에어팟":"airpods", "이어폰":"airpods",
+    "핸드폰":"cell phone", "휴대폰":"cell phone", "폰":"cell phone",
+    "티슈":"tissue", "휴지":"tissue",
     "마우스":"mouse",
-    "물병":"bottle","보틀":"bottle",
-    "안경":"glasses","선글라스":"glasses",
+    "물병":"bottle", "보틀":"bottle",
+    "안경":"glasses", "선글라스":"glasses",
     "젤리":"jelly",
-    "카드":"card","신용카드":"card",
+    "카드":"card", "신용카드":"card",
     "지갑":"wallet",
-    "립밤":"lipbalm","립":"lipbalm",
-    "리모콘":"remocon","리모컨":"remocon",
-    "펜":"pen","볼펜":"pen",
-    "애플워치":"applewatch","워치":"applewatch"
+    "립밤":"lipbalm", "립":"lipbalm",
+    "리모콘":"remocon", "리모컨":"remocon",
+    "펜":"pen", "볼펜":"pen",
+    "애플워치":"applewatch", "워치":"applewatch"
 }
-
-def split_particle(w):
-    for p in particles:
-        if w.endswith(p):
-            return [w[:-len(p)], p]
-    return [w]
 
 def remove_particle(w):
     for p in particles:
@@ -92,11 +85,9 @@ def josa(word):
     return "은" if jong != 0 else "는"
 
 def map_to_class(text):
-    tokens=[]
-    for w in text.split():
-        tokens.extend(split_particle(w))
-    for t in tokens:
-        stem = remove_particle(t)
+    tokens=text.split()
+    for w in tokens:
+        stem = remove_particle(w)
         if stem in SYNONYMS:
             return SYNONYMS[stem], stem
         if stem in YOLO_CLASSES:
@@ -104,105 +95,96 @@ def map_to_class(text):
     return None, None
 
 
-# =========================================
-# 최종 28개 구역 이름
-# =========================================
-
+# ===============================================================
+# 28개 구역 이름
+# ===============================================================
 GRID_NAME = {
     1:"소파 오른쪽 끝",
     2:"집 중앙 하단",
     3:"집 중앙 하단",
     4:"와인셀러 앞",
     5:"소파 앞",
-
     6:"와인셀러와 TV 사이",
     7:"소파 앞",
-
     8:"TV 앞",
     9:"소파와 침대 사이",
     10:"침대 앞",
     11:"서랍장 앞",
     12:"TV와 서랍장 사이",
-
     13:"소파 중앙 - 좌상단",
     14:"소파 중앙 - 우상단",
     15:"소파 중앙 - 좌하단",
     16:"소파 중앙 - 우하단",
-
     17:"거실 중앙 - 좌상단",
     18:"거실 중앙 - 우상단",
     19:"거실 중앙 - 좌하단",
     20:"거실 중앙 - 우하단",
-
     21:"침대쪽 중앙 - 좌상단",
     22:"침대쪽 중앙 - 우상단",
     23:"침대쪽 중앙 - 좌하단",
     24:"침대쪽 중앙 - 우하단",
-
     25:"주방 앞 - 좌상단",
     26:"주방 앞 - 우상단",
     27:"주방 앞 - 좌하단",
-    28:"주방 앞 - 우하단",
+    28:"주방 앞 - 우하단"
 }
 
+SUBDIV = {6,7,10,11}
+SUBDIV_BASE = {6:13,7:17,10:21,11:25}
 
-# =========================================
-# 4×4 → 12개 + 세분할 16개
-# =========================================
 
-SUBDIV_TARGETS = [6,7,10,11]
-
-SUBDIV_BASE = {
-    6:13,   # 13~16
-    7:17,   # 17~20
-    10:21,  # 21~24
-    11:25,  # 25~28
-}
-
+# ===============================================================
+# region28 계산
+# ===============================================================
 def region_16(cx, cy, w, h):
     col = int(cx // (w/4))
     row = int(cy // (h/4))
+    col = min(col,3)
+    row = min(row,3)
     return row*4 + col + 1
 
-
 def region28(cx, cy, w, h):
-    r16 = region_16(cx,cy,w,h)
+    r16 = region_16(cx, cy, w, h)
 
-    if r16 not in SUBDIV_TARGETS:
-        adjust = {1:1,2:2,3:3,4:4,5:5,8:6,9:7,12:8,13:9,14:10,15:11,16:12}
-        return adjust.get(r16,12)
+    if r16 not in SUBDIV:
+        mapping = {
+            1:1, 2:2, 3:3, 4:4, 5:5,
+            8:6, 9:7,
+            12:8, 13:9, 14:10, 15:11, 16:12
+        }
+        return mapping.get(r16, 12)
 
     base = SUBDIV_BASE[r16]
 
     r = r16 - 1
-    row = r//4
-    col = r%4
+    row = r // 4
+    col = r % 4
 
-    x1 = int(w*col/4)
-    y1 = int(h*row/4)
-    x2 = int(w*(col+1)/4)
-    y2 = int(h*(row+1)/4)
+    x1 = int(w * col / 4)
+    y1 = int(h * row / 4)
+    x2 = int(w * (col + 1) / 4)
+    y2 = int(h * (row + 1) / 4)
 
     mx = (x1+x2)//2
     my = (y1+y2)//2
 
-    horiz = 0 if cx<mx else 1
-    vert  = 0 if cy<my else 1
+    horiz = 0 if cx < mx else 1
+    vert = 0 if cy < my else 1
     idx = vert*2 + horiz
 
     return base + idx
 
 
-# =========================================
+# ===============================================================
 # RealSense
-# =========================================
-
+# ===============================================================
 def init_rs():
-    if not REALSENSE_AVAILABLE: return None
+    if not REALSENSE_AVAILABLE:
+        return None
     try:
         p = rs.pipeline()
         c = rs.config()
-        c.enable_stream(rs.stream.color,1280,720,rs.format.bgr8,30)
+        c.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
         p.start(c)
         return p
     except:
@@ -210,49 +192,45 @@ def init_rs():
 
 def get_rs(pipe):
     try:
-        f = pipe.wait_for_frames(timeout_ms=2000).get_color_frame()
+        f = pipe.wait_for_frames().get_color_frame()
         return np.asanyarray(f.get_data()) if f else None
     except:
         return None
 
 
-# =========================================
-# 이벤트 버퍼 (10초)
-# =========================================
-
+# ===============================================================
+# 이벤트 & 버퍼
+# ===============================================================
 BUFFER = deque()
-last_seen={}
-missing={}
-EVENT_DIR="events"
+missing = {}
+last_seen = {}
+EVENT_DIR = "events"
 
 def save_event(obj):
-    ts=int(time.time())
-    folder=f"{EVENT_DIR}/{obj}_{ts}"
-    os.makedirs(folder,exist_ok=True)
+    ts = int(time.time())
+    folder = f"{EVENT_DIR}/{obj}_{ts}"
+    os.makedirs(folder, exist_ok=True)
     for i,(t,fr) in enumerate(BUFFER):
-        cv2.imwrite(f"{folder}/{i:03d}.jpg",fr)
+        cv2.imwrite(f"{folder}/{i:03d}.jpg", fr)
 
 def update_event(boxes,w,h):
     present={b["class"] for b in boxes}
+    now=time.time()
 
     for obj in YOLO_CLASSES:
         if obj in present:
             b=[x for x in boxes if x["class"]==obj][0]
             cx,cy=b["cx"],b["cy"]
-
-            r28 = region28(cx,cy,w,h)
-            last_seen[obj]={"loc":GRID_NAME[r28],"time":time.time()}
-
+            r28=region28(cx,cy,w,h)
+            last_seen[obj]={"loc":GRID_NAME[r28],"time":now}
             missing[obj]=0
-            continue
-
-        missing[obj]=missing.get(obj,0)+1
-        if missing[obj]==10:
-            save_event(obj)
-
+        else:
+            missing[obj]=missing.get(obj,0)+1
+            if missing[obj]==10:
+                save_event(obj)
 
 def recent_event(obj):
-    lst=sorted(glob.glob(f"{EVENT_DIR}/{obj}_*/"),reverse=True)
+    lst = sorted(glob.glob(f"{EVENT_DIR}/{obj}_*/"), reverse=True)
     return lst[0] if lst else None
 
 def jpg_to_mp4(folder,fps=10):
@@ -267,11 +245,6 @@ def jpg_to_mp4(folder,fps=10):
     vw.release()
     return out
 
-
-# =========================================
-# TTS 문장
-# =========================================
-
 def last_seen_msg(obj,word):
     if obj not in last_seen:
         return f"{word}{josa(word)} 최근 기록이 없습니다."
@@ -280,31 +253,36 @@ def last_seen_msg(obj,word):
     return f"{word}{josa(word)} {dt}초 전에 {rec['loc']}에서 마지막으로 감지되었습니다."
 
 
-# =========================================
-# PIP overlay
-# =========================================
+# ===============================================================
+# 📌 PIP overlay — 확대 버전
+# ===============================================================
+def overlay(yolo_f, event_f):
+    if event_f is None:
+        return yolo_f
 
-def overlay(yolo_f,event_f):
-    if event_f is None: return yolo_f
+    h, w = yolo_f.shape[:2]
+    eh, ew = event_f.shape[:2]
 
-    h,w=yolo_f.shape[:2]
-    eh,ew=event_f.shape[:2]
+    scale = 0.60
+    nh = int(h * scale)
+    nw = int((ew / eh) * nh)
 
-    y1,y2=10,10+eh
-    x1,x2=10,10+ew
+    pip = cv2.resize(event_f, (nw, nh))
 
-    if y2>h: y2=h
-    if x2>w: x2=w
+    y1, y2 = 10, 10 + nh
+    x1, x2 = 10, 10 + nw
 
-    cut=event_f[:y2-y1,:x2-x1]
-    yolo_f[y1:y2,x1:x2]=cut
+    y2 = min(y2, h)
+    x2 = min(x2, w)
+    pip = pip[:y2-y1, :x2-x1]
+
+    yolo_f[y1:y2, x1:x2] = pip
     return yolo_f
 
 
-# =========================================
+# ===============================================================
 # STT
-# =========================================
-
+# ===============================================================
 def stt_worker(state):
     r=sr.Recognizer()
     r.energy_threshold=300
@@ -323,7 +301,7 @@ def stt_worker(state):
             tts_speak("다시 말씀해주세요.")
             continue
 
-        cls,word=map_to_class(text)
+        cls,word = map_to_class(text)
         if not cls:
             tts_speak("다시 말씀해주세요.")
             continue
@@ -334,29 +312,27 @@ def stt_worker(state):
         return
 
 
-# =========================================
-# MAIN
-# =========================================
-
-def parse():
+# ===============================================================
+# MAIN LOOP
+# ===============================================================
+def parse_args():
     p=argparse.ArgumentParser()
     p.add_argument("--weights",default="last.pt")
     p.add_argument("--source",default="rs")
-    p.add_argument("--imgsz",default=640,type=int)
-    p.add_argument("--conf",default=0.5,type=float)
-    p.add_argument("--iou",default=0.5,type=float)
+    p.add_argument("--imgsz",type=int,default=640)
+    p.add_argument("--conf",type=float,default=0.5)
+    p.add_argument("--iou",type=float,default=0.5)
     p.add_argument("--show",action="store_true")
     return p.parse_args()
 
 def main():
-    args=parse()
+    args=parse_args()
     model=YOLO(args.weights)
 
     use_rs = args.source in ["rs","d435i","realsense"]
     pipe = init_rs() if use_rs else cv2.VideoCapture(args.source)
 
     state={"target":None,"word":None,"running":False}
-
     pip_frames=[]
     pip_idx=0
 
@@ -365,25 +341,24 @@ def main():
     try:
         while True:
 
-            # Frame
+            # ---------------- frame ----------------
             if use_rs:
-                frame=None
-                for _ in range(5):
-                    frame=get_rs(pipe)
-                    if frame is not None: break
-                if frame is None: continue
+                frame=get_rs(pipe)
+                if frame is None:
+                    continue
             else:
                 ok,frame=pipe.read()
-                if not ok: continue
+                if not ok:
+                    continue
 
-            h,w=frame.shape[:2]
             now=time.time()
+            h,w=frame.shape[:2]
 
             BUFFER.append((now,frame.copy()))
             while BUFFER and now-BUFFER[0][0]>10:
                 BUFFER.popleft()
 
-            # YOLO
+            # ---------------- YOLO ----------------
             res=model.predict(frame,imgsz=args.imgsz,conf=args.conf,iou=args.iou,verbose=False)
             annotated=res[0].plot()
 
@@ -391,18 +366,20 @@ def main():
             for b in res[0].boxes:
                 cname=res[0].names[int(b.cls[0])]
                 x1,y1,x2,y2=b.xyxy[0]
-                cx=(x1+x2)/2; cy=(y1+y2)/2
+                cx=(x1+x2)/2
+                cy=(y1+y2)/2
                 boxes.append({"class":cname,"cx":cx,"cy":cy})
 
             update_event(boxes,w,h)
 
-            # STT 시작
             key=cv2.waitKey(1)&0xFF
+
+            # ---------------- STT ----------------
             if key==ord('s') and not state["running"]:
                 state["running"]=True
                 threading.Thread(target=stt_worker,args=(state,),daemon=True).start()
 
-            # 찾기 요청
+            # ---------------- 찾기 요청 처리 ----------------
             if state["target"]:
                 target=state["target"]
                 word=state["word"]
@@ -413,15 +390,17 @@ def main():
                     if cname==target:
                         found=True
                         x1,y1,x2,y2=b.xyxy[0]
-                        cx=(x1+x2)/2; cy=(y1+y2)/2
-                        r28=region28(cx,cy,w,h)
-                        loc=GRID_NAME[r28]
+                        cx=(x1+x2)/2
+                        cy=(y1+y2)/2
+                        r=region28(cx,cy,w,h)
+                        loc=GRID_NAME[r]
                         tts_speak(f"{word}{josa(word)} {loc}에 있습니다.")
                         state["target"]=None
                         break
 
                 if not found:
                     tts_speak(last_seen_msg(target,word))
+
                     folder=recent_event(target)
                     pip_frames=[]
                     pip_idx=0
@@ -430,35 +409,37 @@ def main():
                         mp4=folder.rstrip("/")+".mp4"
                         if not os.path.exists(mp4):
                             mp4=jpg_to_mp4(folder)
-                        cap2=cv2.VideoCapture(mp4)
+                        cap=cv2.VideoCapture(mp4)
                         while True:
-                            ok,f2=cap2.read()
+                            ok,f2=cap.read()
                             if not ok: break
                             pip_frames.append(f2)
-                        cap2.release()
+                        cap.release()
 
                 state["target"]=None
 
-            # PIP
+            # ---------------- PIP 재생 ----------------
             if pip_frames:
-                annotated=overlay(annotated,pip_frames[pip_idx])
-                pip_idx+=1
-                if pip_idx>=len(pip_frames):
+                annotated = overlay(annotated, pip_frames[pip_idx])
+                pip_idx += 1
+                if pip_idx >= len(pip_frames):
                     pip_frames=[]
                     pip_idx=0
 
+            # ---------------- SHOW ----------------
             if args.show:
                 cv2.imshow("YOLO",annotated)
-            if key==27: break
+
+            if key==27:
+                break
 
     finally:
-        if os.path.exists(EVENT_DIR):
-            os.system("rm -rf events")
+        os.system("rm -rf events")
         if use_rs:
             try: pipe.stop()
             except: pass
         cv2.destroyAllWindows()
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
